@@ -591,7 +591,7 @@ class OverlayWindow:
                     tags=tags,
                 )
             except tk.TclError:
-                pass  # duplicate path — skip
+                logger.debug("Skipping duplicate result path: %s", r.full_path)
 
     def _update_count_label(self) -> None:
         shown = len(self._tree.get_children())
