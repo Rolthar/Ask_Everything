@@ -113,6 +113,7 @@ class OverlayWindow:
         self._type_filter = "all"  # all | file | folder
         self._translation_time_ms = 0
         self._search_time_ms = 0
+        self._suppress_focus_out = False
 
     # ── Build UI ──────────────────────────────────────────────────────────────
 
@@ -350,7 +351,7 @@ class OverlayWindow:
     # ── Focus / visibility ────────────────────────────────────────────────────
 
     def _on_focus_out(self, event: tk.Event) -> None:
-        if self._root and event.widget == self._root:
+        if self._root and event.widget == self._root and not self._suppress_focus_out:
             self.hide()
 
     def show(self) -> None:
@@ -437,13 +438,16 @@ class OverlayWindow:
                 try:
                     eq_query = translator_mod.translate(nl_query)
                 except translator_mod.ConfigError:
-                    self._after(_show_key_error)
+                    self._after(self._show_key_error)
                     return
                 except translator_mod.TranslationTimeout:
-                    self._after(lambda: self._set_status("Translation timed out — try again."))
+                    self._after(lambda: self._set_status_and_enable_input(
+                        "Translation timed out — try again."
+                    ))
                     return
                 except translator_mod.TranslationError as exc:
-                    self._after(lambda: self._set_status(str(exc)))
+                    msg = str(exc)
+                    self._after(lambda: self._set_status_and_enable_input(msg))
                     return
 
             translation_ms = int((time.perf_counter() - t_start) * 1000)
@@ -500,10 +504,13 @@ class OverlayWindow:
     def _confirm_broad(self, nl_query: str) -> None:
         """Ask user to confirm a query that would match all files."""
         self._input_entry.config(state=tk.NORMAL)
-        if messagebox.askyesno(
+        self._suppress_focus_out = True
+        result = messagebox.askyesno(
             "Broad query",
             "This query will match all files — are you sure you want to continue?",
-        ):
+        )
+        self._suppress_focus_out = False
+        if result:
             # Re-run with the translated query directly.
             self._run_search_with_query(nl_query, "*")
 
@@ -576,12 +583,15 @@ class OverlayWindow:
             mdate  = self._fmt_date(r.date_modified)
             path   = self._truncate_path(r.full_path)
             tags   = ("stale",) if r.exists is False else ()
-            self._tree.insert(
-                "", tk.END,
-                iid=r.full_path,
-                values=(icon, r.filename, path, size, mdate),
-                tags=tags,
-            )
+            try:
+                self._tree.insert(
+                    "", tk.END,
+                    iid=r.full_path,
+                    values=(icon, r.filename, path, size, mdate),
+                    tags=tags,
+                )
+            except tk.TclError:
+                logger.debug("Skipping duplicate result path: %s", r.full_path)
 
     def _update_count_label(self) -> None:
         shown = len(self._tree.get_children())
@@ -750,7 +760,10 @@ class OverlayWindow:
         try:
             os.startfile(path)  # type: ignore[attr-defined]
         except AttributeError:
-            subprocess.Popen(["xdg-open", path])
+            try:
+                subprocess.Popen(["xdg-open", path])
+            except Exception as exc:
+                self._set_status(f"Could not open: {exc}")
         except PermissionError:
             self._set_status(f"Access denied: {path}")
         except Exception as exc:
@@ -774,10 +787,13 @@ class OverlayWindow:
     def _handle_search_error(self, error: str) -> None:
         if "not running" in error.lower() or "ipc" in error.lower():
             self._set_status("Everything is not running.")
-            if messagebox.askyesno(
+            self._suppress_focus_out = True
+            result = messagebox.askyesno(
                 "Everything not running",
                 "Everything is not running. Launch it now?",
-            ):
+            )
+            self._suppress_focus_out = False
+            if result:
                 try:
                     search_mod.launch_everything()
                     self._set_status("Launching Everything… please wait.")
@@ -827,10 +843,16 @@ class OverlayWindow:
         if self._root:
             self._status_var.set(msg)
 
+    def _set_status_and_enable_input(self, msg: str) -> None:
+        self._set_status(msg)
+        self._input_entry.config(state=tk.NORMAL)
 
-def _show_key_error() -> None:
-    messagebox.showerror(
-        "API Key Missing",
-        "Anthropic API key is not configured.\n"
-        "Please add ANTHROPIC_API_KEY to your .env file and restart.",
-    )
+    def _show_key_error(self) -> None:
+        self._suppress_focus_out = True
+        messagebox.showerror(
+            "API Key Missing",
+            "Anthropic API key is not configured.\n"
+            "Please add ANTHROPIC_API_KEY to your .env file and restart.",
+        )
+        self._suppress_focus_out = False
+        self._input_entry.config(state=tk.NORMAL)
