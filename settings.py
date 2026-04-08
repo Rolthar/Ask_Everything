@@ -18,7 +18,7 @@ import history as history_mod
 
 logger = logging.getLogger(__name__)
 
-_ENV_FILE = pathlib.Path(".env")
+_ENV_FILE = pathlib.Path(__file__).resolve().parent / ".env"
 
 
 def _read_env() -> dict[str, str]:
