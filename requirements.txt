@@ -1,0 +1,11 @@
+# Core dependencies
+anthropic==0.49.0
+python-dotenv==1.1.0
+Pillow==12.1.1
+pystray==0.19.5
+keyboard==0.13.5
+
+# Everything SDK — Windows IPC bindings
+# Install from: https://github.com/nicholasg1997/everything-sdk
+# or: pip install everything-sdk
+everything-sdk==0.0.3
