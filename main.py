@@ -65,9 +65,10 @@ def _release_lock() -> None:
 
 def _sdk_cleanup() -> None:
     try:
-        import everything as ev  # type: ignore[import]
-        ev.Everything_CleanUp()
-        logger.info("Everything SDK cleaned up.")
+        import search
+        if search._ev is not None:
+            search._ev.Everything_CleanUp()
+            logger.info("Everything SDK cleaned up.")
     except Exception:
         pass
 
@@ -167,6 +168,7 @@ def main() -> None:
     logger.info("Ask Everything started. Press %s to open the overlay.", config.HOTKEY)
 
     # Run the tkinter event loop (blocks until window is destroyed).
+    # _build() is called inside run(), so _root exists by the time we need it.
     overlay.run()
 
 

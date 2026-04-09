@@ -5,7 +5,7 @@ Pillow==12.1.1
 pystray==0.19.5
 keyboard==0.13.5
 
-# Everything SDK — Windows IPC bindings
-# Install from: https://github.com/nicholasg1997/everything-sdk
-# or: pip install everything-sdk
-everything-sdk==0.0.3
+# Everything SDK — Windows DLL (no pip package).
+# Download Everything-SDK.zip from https://www.voidtools.com/support/everything/sdk/
+# and place Everything64.dll (or Everything32.dll) in the project directory,
+# or set EVERYTHING_DLL_PATH in .env.

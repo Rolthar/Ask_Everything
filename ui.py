@@ -166,6 +166,13 @@ class OverlayWindow:
         )
         self._char_label.pack(side=tk.RIGHT, padx=(4, 0))
 
+        tk.Button(
+            top_frame, text="✕", font=fnt_small,
+            bg=self._pal.bg, fg=self._pal.fg_dim,
+            relief=tk.FLAT, bd=0, padx=4,
+            command=self._quit,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+
         # ── Translated query row ───────────────────────────────────────────
         eq_frame = tk.Frame(root, bg=self._pal.bg)
         eq_frame.pack(fill=tk.X, padx=10, pady=(6, 0))
@@ -379,10 +386,19 @@ class OverlayWindow:
         else:
             self.show()
 
+    def _quit(self) -> None:
+        import main as main_mod
+        main_mod._shutdown()
+
     def run(self) -> None:
         """Build the window and start the tkinter event loop."""
         self._build()
         assert self._root is not None
+        # tkinter's mainloop() blocks Python signal delivery on Windows.
+        # This periodic no-op yields back to Python every 200 ms so Ctrl+C works.
+        def _poll_signals():
+            self._root.after(200, _poll_signals)  # type: ignore[union-attr]
+        self._root.after(200, _poll_signals)
         self._root.mainloop()
 
     # ── Input helpers ─────────────────────────────────────────────────────────

@@ -15,9 +15,11 @@ Edge cases handled:
 """
 
 import concurrent.futures
+import ctypes
 import logging
 import os
 import re
+import struct
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -27,17 +29,76 @@ import config
 
 logger = logging.getLogger(__name__)
 
-# ── Attempt to import the Everything SDK ─────────────────────────────────────
+# ── Request flag constants (from the Everything SDK header) ───────────────────
 
-try:
-    import everything as ev  # type: ignore[import]
-    _SDK_AVAILABLE = True
-except ImportError:
-    ev = None  # type: ignore[assignment]
-    _SDK_AVAILABLE = False
-    logger.warning(
-        "everything-sdk not found.  Install with: pip install everything-sdk"
-    )
+EVERYTHING_REQUEST_FILE_NAME     = 0x00000001
+EVERYTHING_REQUEST_PATH          = 0x00000002
+EVERYTHING_REQUEST_SIZE          = 0x00000010
+EVERYTHING_REQUEST_DATE_MODIFIED = 0x00000040
+
+# ── DLL loading ───────────────────────────────────────────────────────────────
+
+_ev: Optional[ctypes.WinDLL] = None  # type: ignore[type-arg]
+_SDK_AVAILABLE = False
+
+
+def _is_64bit() -> bool:
+    return struct.calcsize("P") == 8
+
+
+def _find_dll() -> Optional[str]:
+    dll_name = "Everything64.dll" if _is_64bit() else "Everything32.dll"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    everything_dir = os.path.dirname(config.EVERYTHING_PATH)
+
+    # If EVERYTHING_DLL_PATH is a directory, append the dll filename.
+    env_path = config.EVERYTHING_DLL_PATH
+    if env_path and os.path.isdir(env_path):
+        env_path = os.path.join(env_path, dll_name)
+
+    candidates = [
+        env_path,                                                                             # .env override
+        os.path.join(script_dir, dll_name),                                                  # project dir
+        os.path.join(everything_dir, dll_name),                                              # Everything install dir
+        rf"C:\EverythingSDK\DLL\{dll_name}",                                                 # SDK default extract path
+        os.path.join(script_dir, "Everything32.dll" if _is_64bit() else "Everything64.dll"), # bitness fallback
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def _configure_dll(dll: ctypes.WinDLL) -> None:  # type: ignore[type-arg]
+    """Set argtypes/restype for functions whose signatures differ from ctypes defaults."""
+    dll.Everything_GetResultFileNameW.restype = ctypes.c_wchar_p
+    dll.Everything_GetResultFileNameW.argtypes = [ctypes.c_int]
+    dll.Everything_GetResultPathW.restype = ctypes.c_wchar_p
+    dll.Everything_GetResultPathW.argtypes = [ctypes.c_int]
+    dll.Everything_GetResultSize.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_ulonglong)]
+    dll.Everything_GetResultDateModified.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_ulonglong)]
+
+
+def _load_dll() -> None:
+    global _ev, _SDK_AVAILABLE
+    dll_path = _find_dll()
+    if dll_path is None:
+        logger.warning(
+            "Everything SDK DLL not found. Place Everything64.dll in the project "
+            "directory or set EVERYTHING_DLL_PATH in .env. "
+            "Download: https://www.voidtools.com/support/everything/sdk/"
+        )
+        return
+    try:
+        _ev = ctypes.WinDLL(dll_path)
+        _configure_dll(_ev)
+        _SDK_AVAILABLE = True
+        logger.info("Everything SDK DLL loaded: %s", dll_path)
+    except OSError as exc:
+        logger.warning("Failed to load Everything SDK DLL (%s): %s", dll_path, exc)
+
+
+_load_dll()
 
 # Everything SDK error codes (subset used for human-readable messages).
 _ERROR_MESSAGES = {
@@ -79,10 +140,10 @@ def _get_version() -> tuple[int, int, int, int]:
     if not _SDK_AVAILABLE:
         return (0, 0, 0, 0)
     try:
-        major = ev.Everything_GetMajorVersion()
-        minor = ev.Everything_GetMinorVersion()
-        rev   = ev.Everything_GetRevision()
-        build = ev.Everything_GetBuildNumber()
+        major = _ev.Everything_GetMajorVersion()
+        minor = _ev.Everything_GetMinorVersion()
+        rev   = _ev.Everything_GetRevision()
+        build = _ev.Everything_GetBuildNumber()
         return (major, minor, rev, build)
     except Exception as exc:
         logger.debug("Could not read Everything version: %s", exc)
@@ -136,7 +197,7 @@ def validate_results(results: list[SearchResult]) -> None:
 def search(query: str, max_results: Optional[int] = None) -> SearchResponse:
     """Execute *query* in Everything and return a :class:`SearchResponse`."""
     if not _SDK_AVAILABLE:
-        return SearchResponse(error="everything-sdk is not installed.")
+        return SearchResponse(error="Everything SDK DLL not loaded. See logs for details.")
 
     max_results = max(1, min(max_results or config.MAX_RESULTS, 200))
 
@@ -155,53 +216,53 @@ def search(query: str, max_results: Optional[int] = None) -> SearchResponse:
 
     try:
         # --- Check DB loaded ---
-        if not ev.Everything_IsDBLoaded():
+        if not _ev.Everything_IsDBLoaded():
             logger.warning("Everything DB is not yet loaded.")
             raise EverythingDBLoading(
                 "Everything is still indexing, please wait…"
             )
 
         # --- Set query parameters ---
-        ev.Everything_SetSearchW(query)
-        ev.Everything_SetMax(max_results)
-        ev.Everything_SetOffset(0)
-        ev.Everything_SetRequestFlags(
-            ev.EVERYTHING_REQUEST_FILE_NAME
-            | ev.EVERYTHING_REQUEST_PATH
-            | ev.EVERYTHING_REQUEST_SIZE
-            | ev.EVERYTHING_REQUEST_DATE_MODIFIED
+        _ev.Everything_SetSearchW(query)
+        _ev.Everything_SetMax(max_results)
+        _ev.Everything_SetOffset(0)
+        _ev.Everything_SetRequestFlags(
+            EVERYTHING_REQUEST_FILE_NAME
+            | EVERYTHING_REQUEST_PATH
+            | EVERYTHING_REQUEST_SIZE
+            | EVERYTHING_REQUEST_DATE_MODIFIED
         )
 
         # --- Execute ---
-        if not ev.Everything_QueryW(True):
-            err_code = ev.Everything_GetLastError()
+        if not _ev.Everything_QueryW(1):
+            err_code = _ev.Everything_GetLastError()
             err_msg = _ERROR_MESSAGES.get(err_code, f"Error code {err_code}")
             if err_code == 2:
                 raise EverythingNotRunning(err_msg)
             raise EverythingError(f"Query failed: {err_msg}")
 
-        total = ev.Everything_GetTotResults()
-        num_results = ev.Everything_GetNumResults()
+        total = _ev.Everything_GetTotResults()
+        num_results = _ev.Everything_GetNumResults()
 
         results: list[SearchResult] = []
         for i in range(num_results):
             try:
-                filename = ev.Everything_GetResultFileName(i) or ""
-                path     = ev.Everything_GetResultPath(i) or ""
+                filename = _ev.Everything_GetResultFileNameW(i) or ""
+                path     = _ev.Everything_GetResultPathW(i) or ""
                 full_path = os.path.join(path, filename) if path else filename
 
-                raw_size = ev.Everything_GetResultSize(i)
-                size = int(raw_size) if raw_size is not None and raw_size >= 0 else -1
+                raw_size = ctypes.c_ulonglong(0)
+                size = int(raw_size.value) if _ev.Everything_GetResultSize(i, ctypes.byref(raw_size)) else -1
 
-                raw_date = ev.Everything_GetResultDateModified(i)
+                raw_date = ctypes.c_ulonglong(0)
                 # Everything returns a Windows FILETIME (100-ns intervals since 1601-01-01).
                 # Convert to Unix timestamp.
-                if raw_date and raw_date > 0:
-                    date_modified = (raw_date - 116444736000000000) / 10_000_000
+                if _ev.Everything_GetResultDateModified(i, ctypes.byref(raw_date)) and raw_date.value > 0:
+                    date_modified = (raw_date.value - 116444736000000000) / 10_000_000
                 else:
                     date_modified = 0.0
 
-                is_folder = bool(ev.Everything_IsFolderResult(i))
+                is_folder = bool(_ev.Everything_IsFolderResult(i))
 
                 results.append(SearchResult(
                     filename=filename,
@@ -239,10 +300,10 @@ def is_connection_ok() -> bool:
     if not _SDK_AVAILABLE:
         return False
     try:
-        ev.Everything_SetSearchW("*")
-        ev.Everything_SetMax(1)
-        ev.Everything_QueryW(True)
-        return ev.Everything_GetTotResults() > 0
+        _ev.Everything_SetSearchW("*")
+        _ev.Everything_SetMax(1)
+        _ev.Everything_QueryW(1)
+        return _ev.Everything_GetTotResults() > 0
     except Exception:
         return False
 

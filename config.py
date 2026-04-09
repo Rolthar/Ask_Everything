@@ -98,6 +98,8 @@ EVERYTHING_PATH: str = (
     _get("EVERYTHING_PATH") or r"C:\Program Files\Everything\Everything.exe"
 )
 
+EVERYTHING_DLL_PATH: str = _get("EVERYTHING_DLL_PATH") or ""
+
 RESULT_VALIDATION: bool = _bool("RESULT_VALIDATION", default=True)
 
 # ── UI ────────────────────────────────────────────────────────────────────────
