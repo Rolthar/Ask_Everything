@@ -765,6 +765,8 @@ class OverlayWindow:
                 f"[{os.path.basename(path)}]({path})"
             ),
         )
+        self._suppress_focus_out = True
+        menu.bind("<Unmap>", lambda _e: setattr(self, "_suppress_focus_out", False))
         menu.tk_popup(event.x_root, event.y_root)
 
     def _on_double_click(self, _event: tk.Event) -> None:
