@@ -623,28 +623,31 @@ class OverlayWindow:
 
         def _worker():
             try:
-                import everything as ev  # type: ignore[import]
+                import ctypes
+                ev = search_mod._ev
+                if ev is None:
+                    raise RuntimeError("Everything SDK DLL not loaded.")
                 ev.Everything_SetSearchW(self._apply_type_filter(self._active_query))
                 ev.Everything_SetMax(config.MAX_RESULTS)
                 ev.Everything_SetOffset(offset)
                 ev.Everything_SetRequestFlags(
-                    ev.EVERYTHING_REQUEST_FILE_NAME
-                    | ev.EVERYTHING_REQUEST_PATH
-                    | ev.EVERYTHING_REQUEST_SIZE
-                    | ev.EVERYTHING_REQUEST_DATE_MODIFIED
+                    search_mod.EVERYTHING_REQUEST_FILE_NAME
+                    | search_mod.EVERYTHING_REQUEST_PATH
+                    | search_mod.EVERYTHING_REQUEST_SIZE
+                    | search_mod.EVERYTHING_REQUEST_DATE_MODIFIED
                 )
-                ev.Everything_QueryW(True)
+                ev.Everything_QueryW(1)
                 num = ev.Everything_GetNumResults()
                 new_results: list[search_mod.SearchResult] = []
                 for i in range(num):
-                    filename  = ev.Everything_GetResultFileName(i) or ""
-                    path_str  = ev.Everything_GetResultPath(i) or ""
+                    filename  = ev.Everything_GetResultFileNameW(i) or ""
+                    path_str  = ev.Everything_GetResultPathW(i) or ""
                     full_path = os.path.join(path_str, filename) if path_str else filename
-                    raw_size  = ev.Everything_GetResultSize(i)
-                    size      = int(raw_size) if raw_size is not None and raw_size >= 0 else -1
-                    raw_date  = ev.Everything_GetResultDateModified(i)
-                    if raw_date and raw_date > 0:
-                        dm = (raw_date - 116444736000000000) / 10_000_000
+                    raw_size  = ctypes.c_ulonglong(0)
+                    size      = int(raw_size.value) if ev.Everything_GetResultSize(i, ctypes.byref(raw_size)) else -1
+                    raw_date  = ctypes.c_ulonglong(0)
+                    if ev.Everything_GetResultDateModified(i, ctypes.byref(raw_date)) and raw_date.value > 0:
+                        dm = (raw_date.value - 116444736000000000) / 10_000_000
                     else:
                         dm = 0.0
                     new_results.append(search_mod.SearchResult(

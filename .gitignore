@@ -26,6 +26,10 @@ ENV/
 *.sublime-project
 *.sublime-workspace
 
+# Claude
+.claude/
+CLAUDE.md
+
 # Logs
 *.log
 ask-everything.log*
