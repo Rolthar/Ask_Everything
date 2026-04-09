@@ -160,18 +160,19 @@ class OverlayWindow:
         self._input_entry.bind("<Down>", self._history_down)
         self._input_entry.focus_set()
 
+        tk.Button(
+            top_frame, text="✕", font=fnt_small,
+            bg=self._pal.bg, fg="#e05555",
+            activebackground=self._pal.bg, activeforeground="#ff3333",
+            relief=tk.FLAT, bd=0, padx=6,
+            command=self._quit,
+        ).pack(side=tk.RIGHT)
+
         self._char_label = tk.Label(
             top_frame, text="500", font=fnt_small,
             bg=self._pal.bg, fg=self._pal.fg_dim, width=4, anchor=tk.E,
         )
         self._char_label.pack(side=tk.RIGHT, padx=(4, 0))
-
-        tk.Button(
-            top_frame, text="✕", font=fnt_small,
-            bg=self._pal.bg, fg=self._pal.fg_dim,
-            relief=tk.FLAT, bd=0, padx=4,
-            command=self._quit,
-        ).pack(side=tk.RIGHT, padx=(8, 0))
 
         # ── Translated query row ───────────────────────────────────────────
         eq_frame = tk.Frame(root, bg=self._pal.bg)
