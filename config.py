@@ -66,7 +66,7 @@ ANTHROPIC_API_KEY: str = _require("ANTHROPIC_API_KEY")
 CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
 
 # Timeout for API calls in seconds.
-API_TIMEOUT: int = 10
+API_TIMEOUT: int = 5
 
 # Maximum retries on rate-limit (429) responses.
 API_MAX_RETRIES: int = 3

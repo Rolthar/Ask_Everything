@@ -359,8 +359,7 @@ class OverlayWindow:
     # ── Focus / visibility ────────────────────────────────────────────────────
 
     def _on_focus_out(self, event: tk.Event) -> None:
-        if self._root and event.widget == self._root and not self._suppress_focus_out:
-            self.hide()
+        pass  # Stay open until ✕ or Escape
 
     def show(self) -> None:
         if self._root is None:
@@ -456,14 +455,19 @@ class OverlayWindow:
                     eq_query = translator_mod.translate(nl_query)
                 except translator_mod.ConfigError:
                     self._after(self._show_key_error)
+                    self._after(lambda: self._input_entry.config(state=tk.NORMAL))
                     return
                 except translator_mod.TranslationTimeout:
                     self._after(lambda: self._set_status_and_enable_input(
-                        "Translation timed out — try again."
+                        "⚠ Request timed out (5 s) — check your connection and try again."
                     ))
                     return
                 except translator_mod.TranslationError as exc:
-                    msg = str(exc)
+                    msg = f"⚠ Translation failed: {exc} — try again."
+                    self._after(lambda: self._set_status_and_enable_input(msg))
+                    return
+                except Exception as exc:
+                    msg = f"⚠ Unexpected error: {exc} — try again."
                     self._after(lambda: self._set_status_and_enable_input(msg))
                     return
 
